@@ -15,9 +15,9 @@ import (
 type Server struct {
 	Address     string
 	APIToken    string
-	Credentials map[string]credentials
-	mutex       sync.Mutex
 	RedisConn   redis.Conn
+	credentials map[string]credentials
+	mutex       sync.Mutex
 }
 
 type credentials struct {
@@ -101,7 +101,7 @@ func (s *Server) handleSingleExecute(ctx *fasthttp.RequestCtx) {
 		s.respond(ctx, errorResult{Error: "ERR empty command"}, fasthttp.StatusBadRequest)
 		return
 	}
-	result, code := s.executeCommand(fmt.Sprint(args[0]), args[1:])
+	result, code := s.executeCommand(fmt.Sprint(args[0]), args[1:]...)
 	s.respond(ctx, result, code)
 	return
 }
@@ -124,7 +124,7 @@ func (s *Server) handlePipelineExecute(ctx *fasthttp.RequestCtx) {
 			results = append(results, errorResult{Error: "ERR empty pipeline command"})
 			continue
 		}
-		result, _ := s.executeCommand(fmt.Sprint(request[0]), request[1:])
+		result, _ := s.executeCommand(fmt.Sprint(request[0]), request[1:]...)
 		results = append(results, result)
 	}
 	s.respond(ctx, results, fasthttp.StatusOK)
@@ -157,7 +157,7 @@ func (s *Server) authenticate(ctx *fasthttp.RequestCtx) (*credentials, error) {
 		return &credentials{}, nil
 	}
 	s.mutex.Lock()
-	credential, found := s.Credentials[token]
+	credential, found := s.credentials[token]
 	s.mutex.Unlock()
 	if !found {
 		return nil, errors.New("invalid token")
