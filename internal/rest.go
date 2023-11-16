@@ -1,6 +1,8 @@
 package internal
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -132,7 +134,9 @@ func (s *Server) handlePipelineExecute(ctx *fasthttp.RequestCtx) {
 }
 
 func (s *Server) executeCommand(commandName string, args ...interface{}) (interface{}, int) {
-	// TODO: ACL
+	if strings.ToLower(commandName) == "acl" && len(args) > 0 && strings.ToLower(fmt.Sprint(args[0])) == "resttoken" {
+		return s.aclRestToken(commandName, args...)
+	}
 	res, err := s.RedisConn.Do(commandName, args...)
 	if err != nil {
 		return errorResult{Error: err.Error()}, fasthttp.StatusBadRequest
@@ -148,6 +152,30 @@ func (s *Server) parseToken(ctx *fasthttp.RequestCtx) string {
 	return ""
 }
 
+func (s *Server) aclRestToken(commandName string, args ...interface{}) (interface{}, int) {
+	if len(args) != 3 {
+		return errorResult{Error: "ERR invalid syntax. Usage: ACL RESTTOKEN username password"}, fasthttp.StatusBadRequest
+	}
+	user, pwd := fmt.Sprint(args[1]), fmt.Sprint(args[2])
+	credential, code := s.executeCommand("AUTH", user, pwd)
+	if code != fasthttp.StatusOK {
+		return credential, code
+	}
+	var buf [48]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return errorResult{Error: err.Error()}, fasthttp.StatusInternalServerError
+	}
+	token := base64.URLEncoding.EncodeToString(buf[:])
+
+	s.mutex.Lock()
+	if s.credentials == nil {
+		s.credentials = make(map[string]credentials)
+	}
+	s.credentials[token] = credentials{user, pwd}
+	s.mutex.Unlock()
+
+	return successResult{Result: token}, fasthttp.StatusOK
+}
 func (s *Server) authenticate(ctx *fasthttp.RequestCtx) (*credentials, error) {
 	token := s.parseToken(ctx)
 	if token == "" {
