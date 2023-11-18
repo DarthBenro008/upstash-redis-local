@@ -21,3 +21,4 @@
 go.work
 .idea/
 upstash-redis-local
+bin/
