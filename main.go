@@ -5,7 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"github.com/gomodule/redigo/redis"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"log"
+	"time"
 	"upstash-redis-local/internal"
 )
 
@@ -49,7 +52,15 @@ func main() {
 	if cmd.Validate() != nil {
 
 	}
-	server := internal.Server{Address: cmd.Addr, APIToken: cmd.ApiToken, RedisConn: connectToRedis(cmd.RedisAddr)}
+	config := zap.NewProductionConfig()
+	config.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.RFC3339)
+
+	logger, err := config.Build()
+	if err != nil {
+		log.Fatalf("err: %v", err)
+	}
+	defer logger.Sync()
+	server := internal.Server{Address: cmd.Addr, APIToken: cmd.ApiToken, RedisConn: connectToRedis(cmd.RedisAddr), Logger: logger}
 	defer server.Serve()
 }
 

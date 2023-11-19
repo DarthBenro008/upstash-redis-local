@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/gomodule/redigo/redis"
 	"github.com/valyala/fasthttp"
+	"go.uber.org/zap"
 	"log"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ type Server struct {
 	RedisConn   redis.Conn
 	credentials map[string]credentials
 	mutex       sync.Mutex
+	Logger      *zap.Logger
 }
 
 type credentials struct {
@@ -38,6 +40,7 @@ type successResult struct {
 // Serve exposed function to start the server
 func (s *Server) Serve() {
 
+	s.Logger.Info("upstash-redis-local booting on ", zap.String("addr", s.Address))
 	if err := fasthttp.ListenAndServe(s.Address, s.requestHandler); err != nil {
 		log.Fatalf("Error in serving: %v", err)
 	}
@@ -45,12 +48,15 @@ func (s *Server) Serve() {
 
 // Handle requests for each query
 func (s *Server) requestHandler(ctx *fasthttp.RequestCtx) {
+	s.Logger.Info("Incoming Request with data:", zap.String("body:", string(ctx.PostBody())))
 	if !ctx.IsGet() && !ctx.IsPost() && !ctx.IsHead() && !ctx.IsPut() {
+		s.Logger.Warn("Invalid Method Request")
 		s.respond(ctx, nil, fasthttp.StatusMethodNotAllowed)
 		return
 	}
 	_, err := s.authenticate(ctx)
 	if err != nil {
+		s.Logger.Warn("Unauthorised Request")
 		s.respond(ctx, errorResult{Error: "Unauthorised"}, fasthttp.StatusUnauthorized)
 		return
 	}
@@ -199,12 +205,13 @@ func (s *Server) respond(ctx *fasthttp.RequestCtx, data interface{}, status int)
 	if data != nil {
 		b, err := json.Marshal(data)
 		if err != nil {
-			log.Printf("something went wrong %v\n", err)
+			s.Logger.Error("something went wrong due to: ", zap.Error(err))
 			s.respond(ctx, errorResult{Error: fmt.Sprintf("something went wrong: %v", err)}, fasthttp.StatusInternalServerError)
 		}
 		_, err = ctx.Write(b)
 		if err != nil {
-			log.Printf("something went wrong %v\n", err)
+			s.Logger.Error("something went wrong due to: ", zap.Error(err))
 		}
+		s.Logger.Info("Response Sent with status code", zap.Int("code", status))
 	}
 }
